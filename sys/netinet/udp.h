@@ -66,4 +66,46 @@ struct udphdr {
 /* Maximum UDP fragment size for ESP over UDP. */
 #define	UDP_ENCAP_ESPINUDP_MAXFRAGLEN	552
 
+#define UDPOPT_EOL       0
+#define UDPOPT_NOP       1
+#define UDPOPT_OCS       2
+#define UDPOPT_ACS       3
+#define UDPOPT_LITE      4
+#define UDPOPT_MSS       5
+#define UDPOPT_TIME      6
+#define UDPOPT_FRAG      7
+#define UDPOPT_AE        8
+#define UDPOPT_ECHOREQ   9
+#define UDPOPT_ECHORES   10
+
+#define UDPOLEN_EOL      0
+#define UDPOLEN_NOP      0
+#define UDPOLEN_OCS      2
+#define UDPOLEN_ACS      4
+#define UDPOLEN_LITE     4
+#define UDPOLEN_MSS      4
+#define UDPOLEN_TIME     10
+#define UDPOLEN_FRAG     12
+#define UDPOLEN_ECHOREQ  0
+#define UDPOLEN_ECHORES  0
+
+struct udpopt {
+    u_int32_t   uo_flags;   /* which options are present */
+#define UOF_OCS     0x0001      /* option checksum */
+#define UOF_ACS     0x0002      /* alternative checksum */
+#define UOF_LITE    0x0004      /* udp-lite emulation */
+#define UOF_MSS     0x0008      /* maximum segment size */
+#define UOF_TIME    0x0010      /* timestamp */
+#define UOF_FRAG    0x0020      /* fragmentation */
+#define UOF_ECHOREQ 0x0040      /* echo request */
+#define UOF_ECHORES 0x0080      /* echo response */
+#define UOF_MAXOPT  0x0100
+    u_int8_t    uo_ocs;     /* option checksum */
+    u_int16_t   uo_acs;     /* alternate checksum */
+    //u_int32_t   uo_lite;    /* udp lite checksum */
+    u_int16_t   uo_mss;     /* maximum segment size */
+    u_int32_t   uo_tsval;   /* new timestamp */
+    u_int32_t   uo_tsecr;   /* reflected timestamp */
+};
+
 #endif

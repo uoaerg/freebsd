@@ -129,6 +129,11 @@ SYSCTL_INT(_net_inet_udp, OID_AUTO, require_l2_bcast, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(udp_require_l2_bcast), 0,
     "Only treat packets sent to an L2 broadcast address as broadcast packets");
 
+VNET_DEFINE(int, udp_doopts) = 0;
+SYSCTL_INT(_net_inet_udp, OID_AUTO, process_udp_options, CTLFLAG_RW,
+       &VNET_NAME(udp_doopts), 0,
+	  "Enable UDP Options processing draft-touch-tsvwg-udp-options");
+
 u_long	udp_sendspace = 9216;		/* really max datagram size */
 SYSCTL_ULONG(_net_inet_udp, UDPCTL_MAXDGRAM, maxdgram, CTLFLAG_RW,
     &udp_sendspace, 0, "Maximum outgoing UDP datagram size");
@@ -168,6 +173,9 @@ static void	udp_detach(struct socket *so);
 static int	udp_output(struct inpcb *, struct mbuf *, struct sockaddr *,
 		    struct mbuf *, struct thread *);
 #endif
+
+/* TJ TODO:should be in a header file*/
+void udp_dooptions(struct udpopt *, u_char *, int );
 
 static void
 udp_zone_change(void *tag)
@@ -391,6 +399,66 @@ udp_append(struct inpcb *inp, struct ip *ip, struct mbuf *n, int off,
 	return (0);
 }
 
+/*
+ * Parse UDP Options and place in udpopt
+ */
+void
+udp_dooptions(struct udpopt *uo, u_char *cp, int cnt)
+{
+       int opt, optlen;
+       int optionslen;
+
+       optionslen = cnt;
+
+       uo->uo_flags = 0;
+
+       for(; cnt > 0; cnt -= optlen, cp += optlen) {
+               opt = cp[0];
+
+               if (opt == UDPOPT_EOL)
+                       break;
+               if (opt == UDPOPT_NOP) {
+                       optlen = 1;
+                       continue;
+               }
+               if (opt == UDPOPT_OCS) {
+                       optlen = 1;
+                       uo->uo_flags |= UOF_OCS;
+                       uo->uo_ocs = cp[1];
+                       /* so here we do an 8 bit crc?*/
+               } else {
+                       if (cnt < 2)
+                               break;
+                       optlen = cp[1];
+                       if (optlen < 2 || optlen > cnt)
+                               break;
+               }
+
+               switch (opt) {
+#if 0
+               case UDPOPT_ACS:
+                       continue;
+               case UDPOPT_LITE:
+                       continue;
+               case UDPOPT_MSS:
+                       continue;
+               case UDPOPT_TIME:
+                       continue;
+               case UDPOPT_FRAG:
+                       continue;
+               case UDPOPT_AE:
+                       continue;
+               case UDPOPT_ECHOREQ:
+                       continue;
+               case UDPOPT_ECHORES:
+                       continue;
+#endif
+               default:
+                       continue;
+               }
+       }
+}
+
 int
 udp_input(struct mbuf **mp, int *offp, int proto)
 {
@@ -473,7 +541,22 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 			UDPSTAT_INC(udps_badlen);
 			goto badunlocked;
 		}
-		if (proto == IPPROTO_UDP)
+		// TJ: before we m_adjust we should capture the extra space
+		// udp_len = ip_totallen
+		// udp_optlen = ip_totallen - udp_len
+		u_int16_t optlen = ip_len - len;
+
+		if (proto == IPPROTO_UDP) {
+			   if(udp_doopts) {
+					   UDPSTAT_INC(udps_optspace);
+					   struct udpopt uo;
+					   u_char *optp = (u_char *)(m + ip_len);
+					   udp_dooptions(&uo, optp, optlen);
+			   }
+
+			   m_adj(m, len - ip_len);
+		}
+
 			m_adj(m, len - ip_len);
 	}
 
