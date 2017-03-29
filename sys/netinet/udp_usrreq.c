@@ -416,12 +416,15 @@ udp_dooptions(struct udpopt *uo, u_char *cp, int cnt)
                opt = cp[0];
 
                if (opt == UDPOPT_EOL)
+			           printf("UDP Option: EOL\n");	
                        break;
                if (opt == UDPOPT_NOP) {
+			           printf("UDP Option: NOP\n");	
                        optlen = 1;
                        continue;
                }
                if (opt == UDPOPT_OCS) {
+			           printf("UDP Option: OCS\n");	
                        optlen = 1;
                        uo->uo_flags |= UOF_OCS;
                        uo->uo_ocs = cp[1];
@@ -548,6 +551,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 
 		if (proto == IPPROTO_UDP) {
 			   if(udp_doopts) {
+			           printf("UDP Options space present\n");	
 					   UDPSTAT_INC(udps_optspace);
 					   struct udpopt uo;
 					   u_char *optp = (u_char *)(m + ip_len);
@@ -556,8 +560,6 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 
 			   m_adj(m, len - ip_len);
 		}
-
-			m_adj(m, len - ip_len);
 	}
 
 	/*
