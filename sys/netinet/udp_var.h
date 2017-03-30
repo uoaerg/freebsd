@@ -79,6 +79,7 @@ struct udpcb {
 	/* .. per draft-ietf-ipsec-nat-t-ike-0[01],
 	 * and draft-ietf-ipsec-udp-encaps-(00/)01.txt */
 #define	UF_ESPINUDP		0x00000002	/* w/ non-ESP marker. */
+#define UF_OPT			0x00000004	/* use udp options */
 
 struct udpstat {
 				/* input statistics: */

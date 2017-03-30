@@ -405,61 +405,75 @@ udp_append(struct inpcb *inp, struct ip *ip, struct mbuf *n, int off,
 void
 udp_dooptions(struct udpopt *uo, u_char *cp, int cnt)
 {
-       int opt, optlen;
-       int optionslen;
+	printf("Processing %d bytes of UDP Options\n", cnt);	
+	int toggle = 0;
+	for(int i = 0; i < cnt; i++) {
+		printf("%02x ", cp[i]);
+		if(++toggle % 16 == 0)
+			printf("\n");
+	}
+	printf("\n");	
 
-       optionslen = cnt;
+	int opt, optlen;
+	int optionslen;
+	optionslen = cnt;
+	uo->uo_flags = 0;
 
-       uo->uo_flags = 0;
+	for(; cnt > 0; cnt -= optlen, cp += optlen) {
+		opt = cp[0];
 
-       for(; cnt > 0; cnt -= optlen, cp += optlen) {
-               opt = cp[0];
+		if (opt == UDPOPT_EOL) {
+			printf("\tEOL\n");	
+			break;
+		}	
+		if (opt == UDPOPT_NOP) {
+			printf("\tNOP\n");	
+			optlen = 1;
+			continue;
+		}
+		if (opt == UDPOPT_OCS) {
+			printf("\tOCS\n");	
+			optlen = 1;
+			uo->uo_flags |= UOF_OCS;
+			uo->uo_ocs = cp[1];
+			/* so here we do an 8 bit crc?*/
+		} else {
+			if (cnt < 2) {
+				printf("starting exit: < 2\n");	
+				break;
+			}
+			optlen = cp[1];
+			if (optlen < 2 || optlen > cnt) {
+				printf("starting exit < 2 or > cnt\n");	
+				break;
+			}
+		}
 
-               if (opt == UDPOPT_EOL)
-			           printf("UDP Option: EOL\n");	
-                       break;
-               if (opt == UDPOPT_NOP) {
-			           printf("UDP Option: NOP\n");	
-                       optlen = 1;
-                       continue;
-               }
-               if (opt == UDPOPT_OCS) {
-			           printf("UDP Option: OCS\n");	
-                       optlen = 1;
-                       uo->uo_flags |= UOF_OCS;
-                       uo->uo_ocs = cp[1];
-                       /* so here we do an 8 bit crc?*/
-               } else {
-                       if (cnt < 2)
-                               break;
-                       optlen = cp[1];
-                       if (optlen < 2 || optlen > cnt)
-                               break;
-               }
-
-               switch (opt) {
+	//	printf("starting case\n");	
+		switch (opt) {
 #if 0
-               case UDPOPT_ACS:
-                       continue;
-               case UDPOPT_LITE:
-                       continue;
-               case UDPOPT_MSS:
-                       continue;
-               case UDPOPT_TIME:
-                       continue;
-               case UDPOPT_FRAG:
-                       continue;
-               case UDPOPT_AE:
-                       continue;
-               case UDPOPT_ECHOREQ:
-                       continue;
-               case UDPOPT_ECHORES:
-                       continue;
+		case UDPOPT_ACS:
+			continue;
+		case UDPOPT_LITE:
+			continue;
+		case UDPOPT_MSS:
+			continue;
+		case UDPOPT_TIME:
+			continue;
+		case UDPOPT_FRAG:
+			continue;
+		case UDPOPT_AE:
+			continue;
+		case UDPOPT_ECHOREQ:
+			continue;
+		case UDPOPT_ECHORES:
+			continue;
 #endif
-               default:
-                       continue;
-               }
-       }
+		default:
+			continue;
+		}
+	}  
+	//printf("finished processing UDP Options: cnt is %d\n", cnt);	
 }
 
 int
@@ -550,15 +564,14 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 		u_int16_t optlen = ip_len - len;
 
 		if (proto == IPPROTO_UDP) {
-			   if(udp_doopts) {
-			           printf("UDP Options space present\n");	
-					   UDPSTAT_INC(udps_optspace);
-					   struct udpopt uo;
-					   u_char *optp = (u_char *)(m + ip_len);
-					   udp_dooptions(&uo, optp, optlen);
-			   }
-
-			   m_adj(m, len - ip_len);
+			if(udp_doopts) {
+				printf("UDP Options space present\n");	
+				UDPSTAT_INC(udps_optspace);
+				struct udpopt uo;
+				u_char *optp = mtod(m, u_char *) + iphlen + len;
+				udp_dooptions(&uo, optp, optlen);
+			}
+			m_adj(m, len - ip_len);
 		}
 	}
 
@@ -1071,7 +1084,7 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 {
 	struct inpcb *inp;
 	struct udpcb *up;
-	int isudplite, error, optval;
+	int isudplite, error, optval, opt;
 
 	error = 0;
 	isudplite = (so->so_proto->pr_protocol == IPPROTO_UDPLITE) ? 1 : 0;
@@ -1138,6 +1151,24 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 			else
 				up->u_rxcslen = optval;
 			INP_WUNLOCK(inp);
+			break;
+		case UDP_OPT:
+			printf("UDPOPT: sockopt set");
+			INP_WUNLOCK(inp);
+			error = sooptcopyin(sopt, &optval, sizeof optval,
+				sizeof optval);
+			if (error)
+				return (error);
+
+			opt = UF_OPT;
+
+			INP_WLOCK(inp);
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			if (optval)
+				up->u_flags |= opt;
+			else
+				up->u_flags &= ~opt;
 			break;
 		default:
 			INP_WUNLOCK(inp);
