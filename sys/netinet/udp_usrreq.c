@@ -176,6 +176,8 @@ static int	udp_output(struct inpcb *, struct mbuf *, struct sockaddr *,
 
 /* TJ TODO:should be in a header file*/
 void udp_dooptions(struct udpopt *, u_char *, int );
+int udp_addoptions(struct udpopt *, u_char *, int);
+uint8_t udp_optcksum(u_char *, int );
 
 static void
 udp_zone_change(void *tag)
@@ -437,6 +439,12 @@ udp_dooptions(struct udpopt *uo, u_char *cp, int cnt)
 			uo->uo_flags |= UOF_OCS;
 			uo->uo_ocs = cp[1];
 			/* so here we do an 8 bit crc?*/
+
+			if (udp_optcksum(cp, cnt) != 0) {
+				printf("OCS doesn't pass\n");
+				break;
+			} else
+				printf("OCS passes\n");
 		} else {
 			if (cnt < 2) {
 				printf("starting exit: < 2\n");	
@@ -1153,12 +1161,12 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 			INP_WUNLOCK(inp);
 			break;
 		case UDP_OPT:
-			printf("UDPOPT: sockopt set");
+			printf("Kernel UDPOPT: sockopt set\n");
 			INP_WUNLOCK(inp);
 			error = sooptcopyin(sopt, &optval, sizeof optval,
 				sizeof optval);
-			if (error)
-				return (error);
+			if (error != 0)
+				break;
 
 			opt = UF_OPT;
 
@@ -1169,6 +1177,7 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 				up->u_flags |= opt;
 			else
 				up->u_flags &= ~opt;
+			INP_WUNLOCK(inp);
 			break;
 		default:
 			INP_WUNLOCK(inp);
@@ -1213,6 +1222,50 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 		break;
 	}	
 	return (error);
+}
+
+uint8_t
+udp_optcksum(u_char *cp, int len)
+{
+	uint16_t cksum = 0;
+
+	for(int i = 0; i < len; i++) {
+		cksum += cp[i];
+	}
+
+	while(cksum > 0x00FF)
+		cksum = ((cksum & 0xFF00) >> 8) + (cksum & 0x00FF);
+	return (uint8_t)~cksum;
+}
+
+/*
+ * Parse UDP Options and place in udpopt
+ */
+int
+udp_addoptions(struct udpopt *uo, u_char *cp, int len)
+{
+	int optlen;
+
+	if (len < 7)
+		return 0;
+
+	printf("Adding 7 bytes of UDP Options\n");
+
+	cp[0] = UDPOPT_OCS;
+	cp[1] = 0;
+	cp[2] = UDPOPT_NOP;
+	cp[3] = UDPOPT_NOP;
+	cp[4] = UDPOPT_NOP;
+	cp[5] = UDPOPT_NOP;
+	cp[6] = UDPOPT_EOL;
+
+	optlen = 7;
+	uint8_t cksum = udp_optcksum(cp, optlen);
+
+	cp[1] = cksum;
+	printf("opt cksum: %02x\n",cp[1]);
+
+	return optlen;
 }
 
 #ifdef INET
@@ -1498,6 +1551,7 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 	 * link-layer headers.  Immediate slide the data pointer back forward
 	 * since we won't use that space at this layer.
 	 */
+	/* TJ TODO: and the max option space*/
 	M_PREPEND(m, sizeof(struct udpiphdr) + max_linkhdr, M_NOWAIT);
 	if (m == NULL) {
 		error = ENOBUFS;
@@ -1575,16 +1629,47 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 				ui->ui_sum = 0xffff;
 		}
 	} else if (V_udp_cksum) {
+		((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len); 
 		if (inp->inp_flags & INP_ONESBCAST)
 			faddr.s_addr = INADDR_BROADCAST;
 		ui->ui_sum = in_pseudo(ui->ui_src.s_addr, faddr.s_addr,
-		    htons((u_short)len + sizeof(struct udphdr) + pr));
+			htons((u_short)len + sizeof(struct udphdr) + pr));
 		m->m_pkthdr.csum_flags = CSUM_UDP;
 		m->m_pkthdr.csum_data = offsetof(struct udphdr, uh_sum);
 	}
-	((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len);
+
+	struct udpcb *up;
+	up = intoudpcb(inp);
+	if (udp_doopts && (up->u_flags & UF_OPT)) {
+		#define UDP_MAXOLEN 64
+		u_char opt[UDP_MAXOLEN];
+		struct udpopt uo;
+
+		int optlen = udp_addoptions(&uo, opt, UDP_MAXOLEN);
+		m_append(m, optlen, opt);
+/*
+		u_char *opts;
+		uint16_t ocsck = in_cksum_skip(m, sizeof(struct udpiphdr) + len, optlen);
+		printf("Computed in ck: %04x\n", ocsck);
+		ocsck = ~ocsck;
+		printf("Computed in ck: %04x\n", ocsck);
+
+		while (ocsck > 0x00FF)
+			ocsck = ((ocsck & 0xFF00) >> 8) + (ocsck & 0x00FF);
+		ocsck = ~((uint8_t)ocsck & 0x00FF);	//I doubt this works
+		printf("Computed OCS: %02x\n", ocsck);
+
+		opts = mtod(m, u_char *);
+		opts = opts + sizeof(struct udpiphdr) + len;
+		opts[1] = ocsck;
+*/
+		((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len + optlen); 
+	} else 
+		((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len); 
+
 	((struct ip *)ui)->ip_ttl = inp->inp_ip_ttl;	/* XXX */
 	((struct ip *)ui)->ip_tos = tos;		/* XXX */
+
 	UDPSTAT_INC(udps_opackets);
 
 	/*
