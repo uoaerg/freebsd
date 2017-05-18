@@ -51,6 +51,7 @@ struct udphdr {
  */
 #define	UDP_ENCAP			1
 #define UDP_OPT				8 /* use udp options */	
+#define UDP_OPT_MSS			10 /* get opt rtt estimate */	
 
 /* Start of reserved space for third-party user-settable options. */
 #define	UDP_VENDOR			SO_VENDOR
@@ -104,10 +105,11 @@ struct udpopt {
 #define UOF_MAXOPT  0x0100
     u_int8_t    uo_ocs;     /* option checksum */
     u_int16_t   uo_acs;     /* alternate checksum */
-    //u_int32_t   uo_lite;    /* udp lite checksum */
+    u_int32_t   uo_lite;    /* udp lite checksum */
     u_int16_t   uo_mss;     /* maximum segment size */
     u_int32_t   uo_tsval;   /* new timestamp */
     u_int32_t   uo_tsecr;   /* reflected timestamp */
+    u_int32_t   uo_rtt;     /* rtt estimate */
 };
 
 #endif

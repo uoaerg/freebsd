@@ -69,6 +69,8 @@ struct udpcb {
 	uint16_t	u_rxcslen;	/* Coverage for incoming datagrams. */
 	uint16_t	u_txcslen;	/* Coverage for outgoing datagrams. */
 	void 		*u_tun_ctx;	/* Tunneling callback context. */
+	uint32_t	ts_recent;  /* recent timestamp */
+	uint32_t	u_rtt; 		/* rtt estimate*/
 };
 
 #define	intoudpcb(ip)	((struct udpcb *)(ip)->inp_ppcb)
