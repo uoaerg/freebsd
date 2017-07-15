@@ -1,5 +1,6 @@
 /* $FreeBSD$ */
 /*-
+ *  Copyright (c) 2009-2017 Alexander Motin <mav@FreeBSD.org>
  *  Copyright (c) 1997-2009 by Matthew Jacob
  *  All rights reserved.
  *
@@ -446,6 +447,8 @@ typedef struct {
 	uint16_t		isp_login_hdl;		/* Logging in handle */
 	uint8_t			isp_retry_delay;
 	uint8_t			isp_retry_count;
+	int			isp_use_gft_id;		/* Use GFT_ID */
+	int			isp_use_gff_id;		/* Use GFF_ID */
 
 	/*
 	 * Current active WWNN/WWPN
@@ -501,6 +504,10 @@ typedef struct {
 #define	TOPO_PTP_STUB		4
 
 #define TOPO_IS_FABRIC(x)	((x) == TOPO_FL_PORT || (x) == TOPO_F_PORT)
+
+#define FCP_AL_DA_ALL		0xFF
+#define FCP_AL_PA(fcp) ((uint8_t)(fcp->isp_portid))
+#define FCP_IS_DEST_ALPD(fcp, alpd) (FCP_AL_PA((fcp)) == FCP_AL_DA_ALL || FCP_AL_PA((fcp)) == alpd)
 
 /*
  * Soft Structure per host adapter
@@ -999,6 +1006,7 @@ void isp_async(ispsoftc_t *, ispasync_t, ...);
  *	XS_DMA_ADDR_T		Platform PCI DMA Address Type
  *	XS_GET_DMA_SEG(..)	Get 32 bit dma segment list value
  *	XS_GET_DMA64_SEG(..)	Get 64 bit dma segment list value
+ *	XS_NEED_DMA64_SEG(..)	dma segment needs 64 bit storage
  *	XS_ISP(xs)		gets an instance out of an XS_T
  *	XS_CHANNEL(xs)		gets the channel (bus # for DUALBUS cards) ""
  *	XS_TGT(xs)		gets the target ""

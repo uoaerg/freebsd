@@ -220,8 +220,7 @@ udp_init(void)
 	 * a 4-tuple, flip this to 4-tuple.
 	 */
 	in_pcbinfo_init(&V_udbinfo, "udp", &V_udb, UDBHASHSIZE, UDBHASHSIZE,
-	    "udp_inpcb", udp_inpcb_init, NULL, 0,
-	    IPI_HASHFIELDS_2TUPLE);
+	    "udp_inpcb", udp_inpcb_init, IPI_HASHFIELDS_2TUPLE);
 	V_udpcb_zone = uma_zcreate("udpcb", sizeof(struct udpcb),
 	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
 	uma_zone_set_max(V_udpcb_zone, maxsockets);
@@ -235,8 +234,8 @@ udplite_init(void)
 {
 
 	in_pcbinfo_init(&V_ulitecbinfo, "udplite", &V_ulitecb, UDBHASHSIZE,
-	    UDBHASHSIZE, "udplite_inpcb", udplite_inpcb_init, NULL,
-	    0, IPI_HASHFIELDS_2TUPLE);
+	    UDBHASHSIZE, "udplite_inpcb", udplite_inpcb_init,
+	    IPI_HASHFIELDS_2TUPLE);
 }
 
 /*
@@ -672,8 +671,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 
 	pcbinfo = udp_get_inpcbinfo(proto);
 	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr)) ||
-	    ((!V_udp_require_l2_bcast || m->m_flags & M_BCAST) &&
-	    in_broadcast(ip->ip_dst, ifp))) {
+	    in_broadcast(ip->ip_dst, ifp)) {
 		struct inpcb *last;
 		struct inpcbhead *pcblist;
 		struct ip_moptions *imo;
