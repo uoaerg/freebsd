@@ -148,6 +148,9 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 } } },
 	{ .name = "compat11.fstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Stat11 | OUT, 1 } } },
+	{ .name = "compat11.fstatat", .ret_type = 1, .nargs = 4,
+	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { Stat11 | OUT, 2 },
+		    { Atflags, 3 } } },
 	{ .name = "compat11.lstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Stat11 | OUT, 1 } } },
 	{ .name = "compat11.stat", .ret_type = 1, .nargs = 2,
@@ -480,6 +483,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Long, 0 }, { Signal, 1 } } },
 	{ .name = "thr_self", .ret_type = 1, .nargs = 1,
 	  .args = { { Ptr, 0 } } },
+	{ .name = "thr_set_name", .ret_type = 1, .nargs = 2,
+	  .args = { { Long, 0 }, { Name, 1 } } },
 	{ .name = "truncate", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { QuadHex | IN, 1 } } },
 #if 0
@@ -604,8 +609,6 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Ptr, 0 }, { CloudABIMFlags, 1 } } },
 	{ .name = "cloudabi_sys_mem_advise", .ret_type = 1, .nargs = 3,
 	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIAdvice, 2 } } },
-	{ .name = "cloudabi_sys_mem_lock", .ret_type = 1, .nargs = 2,
-	  .args = { { Ptr, 0 }, { Int, 1 } } },
 	{ .name = "cloudabi_sys_mem_map", .ret_type = 1, .nargs = 6,
 	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIMProt, 2 },
 	            { CloudABIMFlags, 3 }, { Int, 4 }, { Int, 5 } } },
@@ -613,8 +616,6 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIMProt, 2 } } },
 	{ .name = "cloudabi_sys_mem_sync", .ret_type = 1, .nargs = 3,
 	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIMSFlags, 2 } } },
-	{ .name = "cloudabi_sys_mem_unlock", .ret_type = 1, .nargs = 2,
-	  .args = { { Ptr, 0 }, { Int, 1 } } },
 	{ .name = "cloudabi_sys_mem_unmap", .ret_type = 1, .nargs = 2,
 	  .args = { { Ptr, 0 }, { Int, 1 } } },
 	{ .name = "cloudabi_sys_proc_exec", .ret_type = 1, .nargs = 5,
@@ -629,12 +630,6 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { BinString | OUT, 0 }, { Int, 1 } } },
 	{ .name = "cloudabi_sys_sock_accept", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { CloudABISockStat | OUT, 1 } } },
-	{ .name = "cloudabi_sys_sock_bind", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { Int, 1 }, { BinString | IN, 2 } } },
-	{ .name = "cloudabi_sys_sock_connect", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { Int, 1 }, { BinString | IN, 2 } } },
-	{ .name = "cloudabi_sys_sock_listen", .ret_type = 1, .nargs = 2,
-	  .args = { { Int, 0 }, { Int, 1 } } },
 	{ .name = "cloudabi_sys_sock_shutdown", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { CloudABISDFlags, 1 } } },
 	{ .name = "cloudabi_sys_sock_stat_get", .ret_type = 1, .nargs = 3,
@@ -793,8 +788,8 @@ static struct xlat cloudabi_filetype[] = {
 	X(FILETYPE_CHARACTER_DEVICE) X(FILETYPE_DIRECTORY)
 	X(FILETYPE_FIFO) X(FILETYPE_POLL) X(FILETYPE_PROCESS)
 	X(FILETYPE_REGULAR_FILE) X(FILETYPE_SHARED_MEMORY)
-	X(FILETYPE_SOCKET_DGRAM) X(FILETYPE_SOCKET_SEQPACKET)
-	X(FILETYPE_SOCKET_STREAM) X(FILETYPE_SYMBOLIC_LINK)
+	X(FILETYPE_SOCKET_DGRAM) X(FILETYPE_SOCKET_STREAM)
+	X(FILETYPE_SYMBOLIC_LINK)
 	XEND
 };
 
@@ -821,11 +816,6 @@ static struct xlat cloudabi_msflags[] = {
 
 static struct xlat cloudabi_oflags[] = {
 	X(O_CREAT) X(O_DIRECTORY) X(O_EXCL) X(O_TRUNC)
-	XEND
-};
-
-static struct xlat cloudabi_sa_family[] = {
-	X(AF_UNSPEC) X(AF_INET) X(AF_INET6) X(AF_UNIX)
 	XEND
 };
 
@@ -2276,10 +2266,6 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		cloudabi_sockstat_t ss;
 		if (get_struct(pid, (void *)args[sc->offset], &ss, sizeof(ss))
 		    != -1) {
-			fprintf(fp, "{ %s, ", xlookup(
-			    cloudabi_sa_family, ss.ss_sockname.sa_family));
-			fprintf(fp, "%s, ", xlookup(
-			    cloudabi_sa_family, ss.ss_peername.sa_family));
 			fprintf(fp, "%s, ", xlookup(
 			    cloudabi_errno, ss.ss_error));
 			fprintf(fp, "%s }", xlookup_bits(

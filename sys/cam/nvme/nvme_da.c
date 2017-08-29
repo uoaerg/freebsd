@@ -808,6 +808,10 @@ ndaregister(struct cam_periph *periph, void *arg)
 	    DEVSTAT_ALL_SUPPORTED,
 	    DEVSTAT_TYPE_DIRECT | XPORT_DEVSTAT_TYPE(cpi.transport),
 	    DEVSTAT_PRIORITY_DISK);
+	/*
+	 * Add alias for older nvd drives to ease transition.
+	 */
+	disk_add_alias(disk, "nvd");
 
 	/*
 	 * Acquire a reference to the periph before we register with GEOM.
@@ -1017,6 +1021,12 @@ ndadone(struct cam_periph *periph, union ccb *done_ccb)
 			free(bp->bio_driver2, M_NVMEDA);
 		softc->outstanding_cmds--;
 
+		/*
+		 * We need to call cam_iosched before we call biodone so that we
+		 * don't measure any activity that happens in the completion
+		 * routine, which in the case of sendfile can be quite
+		 * extensive.
+		 */
 		cam_iosched_bio_complete(softc->cam_iosched, bp, done_ccb);
 		xpt_release_ccb(done_ccb);
 		if (state == NDA_CCB_TRIM) {
