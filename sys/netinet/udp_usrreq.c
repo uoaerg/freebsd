@@ -178,6 +178,8 @@ static int	udp_output(struct inpcb *, struct mbuf *, struct sockaddr *,
 void udp_dooptions(struct udpopt *, u_char *, int );
 int udp_addoptions(struct udpopt *, u_char *, int);
 uint8_t udp_optcksum(u_char *, int );
+int udp_send_echores(struct socket *, struct sockaddr *, struct mbuf *, 
+	struct thread *);
 static __inline uint32_t udp_ts_getticks(void);
 
 static void
@@ -867,11 +869,21 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 
 	if(udp_doopts) {
 		struct udpcb *up;
-
 		up = intoudpcb(inp);
-		//if TIME
-		up->ts_recent = uo.uo_tsecr;
-		up->u_rtt = uo.uo_rtt;
+		if (up != NULL && (up->u_flags & UF_OPT)) {
+
+			//if TIME
+			up->ts_recent = uo.uo_tsecr;
+			up->u_rtt = uo.uo_rtt;
+
+			/* 
+			 * if we are doing echos and have been asked to provide a response 
+			 */
+			if ( (uo.uo_flags & UDPOPT_ECHORES) && (up->sopt_td != NULL) && 
+				(up->u_flags & UF_OPTECHO)) {
+				udp_send_echores(inp->inp_socket, (struct sockaddr *)&udp_in[0], NULL, up->sopt_td);
+			}
+		}
 	}
 
 	UDP_PROBE(receive, NULL, inp, ip, inp, uh);
@@ -1223,6 +1235,31 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 				up->u_flags &= ~opt;
 			INP_WUNLOCK(inp);
 			break;
+		case UDP_OPT_ECHO:
+			printf("Kernel UDPOPT ECHO: sockopt set\n");
+			INP_WUNLOCK(inp);
+			error = sooptcopyin(sopt, &optval, sizeof optval,
+				sizeof optval);
+			if (error != 0)
+				break;
+
+			opt = UF_OPT;
+
+			INP_WLOCK(inp);
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			if (up->u_flags & UF_OPT) 
+				if (optval) {
+					up->u_flags |= opt;
+					up->sopt_td = sopt->sopt_td;
+				} else {
+					up->u_flags &= ~opt;
+					up->sopt_td = NULL;
+				}
+			else
+				error = EINVAL;
+			INP_WUNLOCK(inp);
+			break;
 		default:
 			INP_WUNLOCK(inp);
 			error = ENOPROTOOPT;
@@ -1294,6 +1331,38 @@ udp_optcksum(u_char *cp, int len)
 		cksum = ((cksum & 0xFF00) >> 8) + (cksum & 0x00FF);
 
 	return (uint8_t)~cksum;
+}
+
+int
+udp_send_echores(struct socket *so, struct sockaddr *addr,
+    struct mbuf *control, struct thread *td)
+{
+	struct inpcb *inp;
+	struct mbuf *m;
+
+	MGET(m, M_WAITOK, MT_DATA);
+	if (m == NULL) {
+		printf("upd_opt_send_echores failed to alloc mbuf\n");
+		return (0);
+	}
+	/*
+	 *	tj TODO
+	 *	Make up a header from the address we have
+	 *	create option space with the options we want to send
+	 *	feed 'empty' datagram to the network
+	 *
+	 *	look at the sctp code to crib how to make the things
+	 *
+	 *	we should probably use udp_send to do the actual send
+	 *
+	 *
+	 *	udp_output is going to make a real header and add options for us
+	 *	just create an mbuf and feed it in
+	 */
+
+	inp = sotoinpcb(so);
+	KASSERT(inp != NULL, ("udp_send: inp == NULL"));
+	return (udp_output(inp, m, addr, control, td));
 }
 
 /*

@@ -50,8 +50,9 @@ struct udphdr {
  * These are discrete values and not masked together.
  */
 #define	UDP_ENCAP			1
-#define UDP_OPT				8 /* use udp options */	
-#define UDP_OPT_MSS			10 /* get opt rtt estimate */	
+#define UDP_OPT				8 	/* use udp options */	
+#define UDP_OPT_MSS			9 	/* get opt rtt estimate */	
+#define UDP_OPT_ECHO		10	/* respond to echo requests estimate */	
 
 /* Start of reserved space for third-party user-settable options. */
 #define	UDP_VENDOR			SO_VENDOR

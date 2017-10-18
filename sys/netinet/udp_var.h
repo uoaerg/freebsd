@@ -65,6 +65,7 @@ typedef void(*udp_tun_icmp_t)(int, struct sockaddr *, void *, void *);
 struct udpcb {
 	udp_tun_func_t	u_tun_func;	/* UDP kernel tunneling callback. */
 	udp_tun_icmp_t  u_icmp_func;	/* UDP kernel tunneling icmp callback */
+	struct thread *sopt_td;	/* calling thread for ECHO sopt */
 	u_int		u_flags;	/* Generic UDP flags. */
 	uint16_t	u_rxcslen;	/* Coverage for incoming datagrams. */
 	uint16_t	u_txcslen;	/* Coverage for outgoing datagrams. */
@@ -82,6 +83,7 @@ struct udpcb {
 	 * and draft-ietf-ipsec-udp-encaps-(00/)01.txt */
 #define	UF_ESPINUDP		0x00000002	/* w/ non-ESP marker. */
 #define UF_OPT			0x00000004	/* use udp options */
+#define UF_OPTECHO		0x00000008	/* use udp options echo */
 
 struct udpstat {
 				/* input statistics: */
