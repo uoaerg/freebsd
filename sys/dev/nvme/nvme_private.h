@@ -135,6 +135,7 @@ struct nvme_completion_poll_status {
 #ifdef NVME_UNMAPPED_BIO_SUPPORT
 #define NVME_REQUEST_BIO	4
 #endif
+#define NVME_REQUEST_CCB        5
 
 struct nvme_request {
 
@@ -517,6 +518,20 @@ nvme_allocate_request_bio(struct bio *bio, nvme_cb_fn_t cb_fn, void *cb_arg)
 	return (req);
 }
 
+static __inline struct nvme_request *
+nvme_allocate_request_ccb(union ccb *ccb, nvme_cb_fn_t cb_fn, void *cb_arg)
+{
+	struct nvme_request *req;
+
+	req = _nvme_allocate_request(cb_fn, cb_arg);
+	if (req != NULL) {
+		req->type = NVME_REQUEST_CCB;
+		req->u.payload = ccb;
+	}
+
+	return (req);
+}
+
 #define nvme_free_request(req)	uma_zfree(nvme_request_zone, req)
 
 void	nvme_notify_async_consumers(struct nvme_controller *ctrlr,
@@ -527,5 +542,6 @@ void	nvme_notify_fail_consumers(struct nvme_controller *ctrlr);
 void	nvme_notify_new_controller(struct nvme_controller *ctrlr);
 
 void	nvme_ctrlr_intx_handler(void *arg);
+void	nvme_ctrlr_poll(struct nvme_controller *ctrlr);
 
 #endif /* __NVME_PRIVATE_H__ */
