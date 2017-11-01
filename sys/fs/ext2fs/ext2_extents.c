@@ -377,11 +377,11 @@ ext4_ext_find_extent(struct inode *ip, daddr_t block,
 	if (error)
 		return (error);
 
-	if (!ppath)
+	if (ppath == NULL)
 		return (EINVAL);
 
 	path = *ppath;
-	if (!path) {
+	if (path == NULL) {
 		path = malloc(EXT4_EXT_DEPTH_MAX *
 		    sizeof(struct ext4_extent_path),
 		    M_EXT2EXTENTS, M_WAITOK | M_ZERO);
@@ -420,7 +420,7 @@ ext4_ext_find_extent(struct inode *ip, daddr_t block,
 		}
 
 		ext4_ext_fill_path_bdata(&path[ppos], bp, blk);
-		brelse(bp);
+		bqrelse(bp);
 
 		eh = ext4_ext_block_header(path[ppos].ep_data);
 		error = ext4_ext_check_header(ip, eh);
@@ -1228,7 +1228,7 @@ ext4_ext_get_blocks(struct inode *ip, e4fs_daddr_t iblk,
 	}
 
 	if ((ex = path[depth].ep_ext)) {
-	        uint64_t lblk = ex->e_blk;
+		uint64_t lblk = ex->e_blk;
 		uint16_t e_len  = ex->e_len;
 		e4fs_daddr_t e_start = ext4_ext_extent_pblock(ex);
 
@@ -1349,7 +1349,7 @@ ext4_ext_rm_leaf(struct inode *ip, struct ext4_extent_path *path,
     uint64_t start)
 {
 	struct m_ext2fs *fs;
-	int depth, credits;
+	int depth;
 	struct ext4_extent_header *eh;
 	unsigned int a, b, block, num;
 	unsigned long ex_blk;
@@ -1397,16 +1397,10 @@ ext4_ext_rm_leaf(struct inode *ip, struct ext4_extent_path *path,
 			/* Remove whole extent. */
 			block = ex_blk;
 			num = 0;
-			KASSERT(a == ex_blk, ("ext4_ext_rm_leaf: bad a"));
-			KASSERT(b != ex_blk + ex_len - 1,
-			    ("ext4_ext_rm_leaf: bad b"));
 		}
 
-		credits = EXT4_EXT_DEPTH_MAX;
-		if (ex == EXT_FIRST_EXTENT(eh)) {
+		if (ex == EXT_FIRST_EXTENT(eh))
 			correct_index = 1;
-			credits += (ext4_ext_inode_depth(ip)) + 1;
-		}
 
 		error = ext4_remove_blocks(ip, ex, a, b);
 		if (error)
@@ -1511,7 +1505,7 @@ ext4_ext_remove_space(struct inode *ip, off_t length, int flags,
 		return (error);
 
 	path = malloc(sizeof(struct ext4_extent_path) * (depth + 1),
-		      M_EXT2EXTENTS, M_WAITOK | M_ZERO);
+	    M_EXT2EXTENTS, M_WAITOK | M_ZERO);
 	if (!path)
 		return (ENOMEM);
 

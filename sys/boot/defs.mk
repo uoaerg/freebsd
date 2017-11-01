@@ -5,19 +5,34 @@
 .if !defined(__BOOT_DEFS_MK__)
 __BOOT_DEFS_MK__=${MFILE}
 
-BOOTDIR=	${SRCTOP}/sys/boot
-FICLDIR=	${SRCTOP}/sys/boot/ficl
-LDR_MI=		${BOOTDIR}/common
-SASRC=		${SRCTOP}/sys/boot/libsa
+BOOTSRC=	${SRCTOP}/sys/boot
+EFISRC=		${BOOTSRC}/efi
+EFIINC=		${EFISRC}/include
+EFIINCMD=	${EFIINC}/${MACHINE}
+FDTSRC=		${BOOTSRC}/fdt
+FICLSRC=	${BOOTSRC}/ficl
+LDRSRC=		${BOOTSRC}/common
+SASRC=		${BOOTSRC}/libsa
 SYSDIR=		${SRCTOP}/sys
+UBOOTSRC=	${BOOTSRC}/uboot
+ZFSSRC=		${BOOTSRC}/zfs
+
+BOOTOBJ=	${OBJTOP}/sys/boot
+
+# BINDIR is where we install
+BINDIR?=	/boot
 
 # NB: The makefiles depend on these being empty when we don't build forth.
 .if ${MK_FORTH} != "no"
-LIBFICL=	${OBJTOP}/sys/boot/ficl/libficl.a
-LIBFICL32=	${OBJTOP}/sys/boot/ficl32/libficl.a
+LIBFICL=	${BOOTOBJ}/ficl/libficl.a
+LIBFICL32=	${BOOTOBJ}/ficl32/libficl.a
 .endif
-LIBSA=		${OBJTOP}/sys/boot/libsa/libsa.a
-LIBSA32=	${OBJTOP}/sys/boot/libsa32/libsa32.a
+LIBSA=		${BOOTOBJ}/libsa/libsa.a
+.if ${MACHINE} == "i386"
+LIBSA32=	${LIBSA}
+.else
+LIBSA32=	${BOOTOBJ}/libsa32/libsa32.a
+.endif
 
 # Standard options:
 
