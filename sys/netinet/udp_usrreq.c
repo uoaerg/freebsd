@@ -609,7 +609,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 		u_int16_t optlen = ip_len - len;
 
 		if (proto == IPPROTO_UDP) {
-			if(udp_doopts) {
+			if(V_udp_doopts) {
 				printf("UDP Options space present\n");	
 				UDPSTAT_INC(udps_optspace);
 				u_char *optp = mtod(m, u_char *) + iphlen + len;
@@ -867,7 +867,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 		}
 	}
 
-	if(udp_doopts) {
+	if(V_udp_doopts) {
 		struct udpcb *up;
 		up = intoudpcb(inp);
 		if (up != NULL && (up->u_flags & UF_OPT)) {
@@ -1848,7 +1848,7 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 
 	struct udpcb *up;
 	up = intoudpcb(inp);
-	if (udp_doopts && (up->u_flags & UF_OPT)) {
+	if (V_udp_doopts && (up->u_flags & UF_OPT)) {
 		#define UDP_MAXOLEN 64
 		u_char opt[UDP_MAXOLEN];
 		struct udpopt uo;

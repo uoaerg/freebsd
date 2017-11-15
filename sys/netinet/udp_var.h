@@ -149,6 +149,8 @@ VNET_DECLARE(struct inpcbinfo, ulitecbinfo);
 #define	V_ulitecb		VNET(ulitecb)
 #define	V_ulitecbinfo		VNET(ulitecbinfo)
 
+#define	V_udp_doopts 	VNET(udp_doopts)
+
 extern u_long			udp_sendspace;
 extern u_long			udp_recvspace;
 VNET_DECLARE(int, udp_cksum);
