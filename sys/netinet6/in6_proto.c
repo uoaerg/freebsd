@@ -161,7 +161,7 @@ struct protosw inet6sw[] = {
 	.pr_flags =		PR_ATOMIC|PR_ADDR,
 	.pr_input =		udp6_input,
 	.pr_ctlinput =		udp6_ctlinput,
-	.pr_ctloutput =		ip6_ctloutput,
+	.pr_ctloutput =		udp_ctloutput,
 #ifndef INET	/* Do not call initialization twice. */
 	.pr_init =		udp_init,
 #endif
