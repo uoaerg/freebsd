@@ -67,10 +67,14 @@ typedef void(*udp_tun_icmp_t)(int, struct sockaddr *, void *, void *);
 struct udpcb {
 	udp_tun_func_t	u_tun_func;	/* UDP kernel tunneling callback. */
 	udp_tun_icmp_t  u_icmp_func;	/* UDP kernel tunneling icmp callback */
+	struct thread *u_sopt_td;	/* calling thread for ECHO sopt */
 	u_int		u_flags;	/* Generic UDP flags. */
 	uint16_t	u_rxcslen;	/* Coverage for incoming datagrams. */
 	uint16_t	u_txcslen;	/* Coverage for outgoing datagrams. */
 	void 		*u_tun_ctx;	/* Tunneling callback context. */
+	uint32_t	u_ts_recent;  /* recent timestamp */
+	uint32_t	u_echo_recent;  /* recent request */
+	uint32_t	u_rtt; 		/* rtt estimate*/
 };
 
 #define	intoudpcb(ip)	((struct udpcb *)(ip)->inp_ppcb)
@@ -81,6 +85,8 @@ struct udpcb {
 	/* .. per draft-ietf-ipsec-nat-t-ike-0[01],
 	 * and draft-ietf-ipsec-udp-encaps-(00/)01.txt */
 #define	UF_ESPINUDP		0x00000002	/* w/ non-ESP marker. */
+#define UF_OPT			0x00000004	/* use udp options */
+#define UF_OPTECHO		0x00000008	/* use udp options echo */
 
 struct udpstat {
 				/* input statistics: */
@@ -94,6 +100,7 @@ struct udpstat {
 	uint64_t udps_fullsock;		/* not delivered, input socket full */
 	uint64_t udpps_pcbcachemiss;	/* input packets missing pcb cache */
 	uint64_t udpps_pcbhashmiss;	/* input packets not for hashed pcb */
+	uint64_t udps_optspace;	/* datagrams with udp option space */
 				/* output statistics: */
 	uint64_t udps_opackets;		/* total output packets */
 	uint64_t udps_fastout;		/* output packets on fast path */
@@ -144,6 +151,8 @@ VNET_DECLARE(struct inpcbinfo, ulitecbinfo);
 #define	V_udbinfo		VNET(udbinfo)
 #define	V_ulitecb		VNET(ulitecb)
 #define	V_ulitecbinfo		VNET(ulitecbinfo)
+
+#define	V_udp_doopts 	VNET(udp_doopts)
 
 extern u_long			udp_sendspace;
 extern u_long			udp_recvspace;

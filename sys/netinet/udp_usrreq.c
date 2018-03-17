@@ -92,6 +92,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/udp.h>
 #include <netinet/udp_var.h>
 #include <netinet/udplite.h>
+#include <netinet/udp_options.h>
 #include <netinet/in_rss.h>
 
 #include <netipsec/ipsec_support.h>
@@ -124,6 +125,11 @@ VNET_DEFINE(int, udp_blackhole) = 0;
 SYSCTL_INT(_net_inet_udp, OID_AUTO, blackhole, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(udp_blackhole), 0,
     "Do not send port unreachables for refused connects");
+
+VNET_DEFINE(int, udp_doopts) = 0;
+SYSCTL_INT(_net_inet_udp, OID_AUTO, process_udp_options, CTLFLAG_VNET | CTLFLAG_RW,
+       &VNET_NAME(udp_doopts), 0,
+	  "Enable UDP Options processing draft-ietf-tsvwg-udp-options");
 
 u_long	udp_sendspace = 9216;		/* really max datagram size */
 SYSCTL_ULONG(_net_inet_udp, UDPCTL_MAXDGRAM, maxdgram, CTLFLAG_RW,
@@ -393,13 +399,15 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 	struct udphdr *uh;
 	struct ifnet *ifp;
 	struct inpcb *inp;
-	uint16_t len, ip_len;
+	uint16_t len, ip_len, optlen;
 	struct inpcbinfo *pcbinfo;
 	struct ip save_ip;
 	struct sockaddr_in udp_in[2];
 	struct mbuf *m;
 	struct m_tag *fwd_tag;
 	int cscov_partial, iphlen;
+	struct udpopt uo;
+	uo.uo_flags = 0;
 
 	m = *mp;
 	iphlen = *offp;
@@ -468,8 +476,17 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 			UDPSTAT_INC(udps_badlen);
 			goto badunlocked;
 		}
-		if (proto == IPPROTO_UDP)
+
+		if (proto == IPPROTO_UDP) {
+			if(V_udp_doopts) {
+				/* before we m_adjust capture option space*/
+				optlen = ip_len - len;
+				u_char *optp = mtod(m, u_char *) + iphlen + len;
+				udp_dooptions(&uo, optp, optlen);
+				UDPSTAT_INC(udps_optspace);
+			}
 			m_adj(m, len - ip_len);
+		}
 	}
 
 	/*
@@ -715,6 +732,27 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 			INP_RUNLOCK(inp);
 			m_freem(m);
 			return (IPPROTO_DONE);
+		}
+	}
+
+	if(V_udp_doopts) {
+		struct udpcb *up;
+		up = intoudpcb(inp);
+		if (up != NULL && (up->u_flags & UF_OPT)) {
+			if (uo.uo_flags & UOF_TIME) {
+				up->u_ts_recent = uo.uo_tsecr;
+				up->u_rtt = uo.uo_rtt;
+			}
+			if (uo.uo_flags & UOF_ECHOREQ)
+				up->u_echo_recent = uo.uo_echoreq;
+
+			/*
+			 * if we are doing echos and have been asked to provide a response
+			 */
+			if ( (uo.uo_flags & UOF_ECHOREQ) && (up->u_sopt_td != NULL) &&
+				(up->u_flags & UF_OPTECHO)) {
+				udp_send_echo(inp->inp_socket, (struct sockaddr *)&udp_in[0], up->u_sopt_td);
+			}
 		}
 	}
 
@@ -980,7 +1018,7 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 {
 	struct inpcb *inp;
 	struct udpcb *up;
-	int isudplite, error, optval;
+	int isudplite, error, optval, opt;
 
 	error = 0;
 	isudplite = (so->so_proto->pr_protocol == IPPROTO_UDPLITE) ? 1 : 0;
@@ -1048,6 +1086,46 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 				up->u_rxcslen = optval;
 			INP_WUNLOCK(inp);
 			break;
+		case UDP_OPT:
+			INP_WUNLOCK(inp);
+			error = sooptcopyin(sopt, &optval, sizeof optval,
+				sizeof optval);
+			if (error != 0)
+				break;
+
+			opt = UF_OPT;
+
+			INP_WLOCK(inp);
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			if (optval)
+				up->u_flags |= opt;
+			else
+				up->u_flags &= ~opt;
+			INP_WUNLOCK(inp);
+			break;
+		case UDP_OPT_ECHO:
+			/* TODO error if we are not doing options also */
+			INP_WUNLOCK(inp);
+			error = sooptcopyin(sopt, &optval, sizeof optval,
+				sizeof optval);
+			if (error != 0)
+				break;
+
+			opt = UF_OPTECHO;
+
+			INP_WLOCK(inp);
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			if (optval) {
+				up->u_flags |= opt;
+				up->u_sopt_td = sopt->sopt_td;
+			} else {
+				up->u_flags &= ~opt;
+				up->u_sopt_td = NULL;
+			}
+			INP_WUNLOCK(inp);
+			break;
 		default:
 			INP_WUNLOCK(inp);
 			error = ENOPROTOOPT;
@@ -1080,6 +1158,33 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 				optval = up->u_txcslen;
 			else
 				optval = up->u_rxcslen;
+			INP_WUNLOCK(inp);
+			error = sooptcopyout(sopt, &optval, sizeof(optval));
+			break;
+		case UDP_OPT:
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			optval = up->u_flags & UF_OPT;
+			INP_WUNLOCK(inp);
+			error = sooptcopyout(sopt, &optval, sizeof(optval));
+			break;
+		case UDP_OPT_ECHO:
+			/* TODO error if we are not doing options also */
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			optval = up->u_flags & UF_OPTECHO;
+			INP_WUNLOCK(inp);
+			error = sooptcopyout(sopt, &optval, sizeof(optval));
+			break;
+		case UDP_OPT_MSS:
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			if (up->u_flags & UDP_OPT) {
+				INP_WUNLOCK(inp);
+				error = ENOPROTOOPT;
+				break;
+			}
+			optval = up->u_rtt;
 			INP_WUNLOCK(inp);
 			error = sooptcopyout(sopt, &optval, sizeof(optval));
 			break;
@@ -1453,6 +1558,7 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 				ui->ui_sum = 0xffff;
 		}
 	} else if (V_udp_cksum) {
+		((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len);
 		if (inp->inp_flags & INP_ONESBCAST)
 			faddr.s_addr = INADDR_BROADCAST;
 		ui->ui_sum = in_pseudo(ui->ui_src.s_addr, faddr.s_addr,
@@ -1460,9 +1566,40 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 		m->m_pkthdr.csum_flags = CSUM_UDP;
 		m->m_pkthdr.csum_data = offsetof(struct udphdr, uh_sum);
 	}
-	((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len);
+
+	struct udpcb *up;
+	up = intoudpcb(inp);
+	if (V_udp_doopts && (up->u_flags & UF_OPT)) {
+		u_char *opt = NULL;
+		size_t optsize;
+		struct udpopt uo;
+
+		uo.uo_flags = UOF_MSS | UOF_TIME;
+
+		uo.uo_mss = udp_sendspace;
+		uo.uo_tsecr = up->u_ts_recent;
+
+		if (up->u_echo_recent != 0) {
+			uo.uo_echores = up->u_echo_recent;
+			uo.uo_flags |= UOF_ECHORES;
+		}
+
+		optsize = udp_optlen(&uo);
+		opt = malloc(optsize, M_TEMP, M_NOWAIT);
+
+		if (opt == NULL) {
+			panic("unable to alloc probe memory\n");
+		}
+
+		int optlen = udp_addoptions(&uo, opt, optsize);
+		m_append(m, optlen, opt);
+		((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len + optlen); 
+	} else 
+		((struct ip *)ui)->ip_len = htons(sizeof(struct udpiphdr) + len); 
+
 	((struct ip *)ui)->ip_ttl = inp->inp_ip_ttl;	/* XXX */
 	((struct ip *)ui)->ip_tos = tos;		/* XXX */
+
 	UDPSTAT_INC(udps_opackets);
 
 	/*
@@ -1747,6 +1884,29 @@ udp_disconnect(struct socket *so)
 	SOCK_UNLOCK(so);
 	INP_WUNLOCK(inp);
 	return (0);
+}
+
+int
+udp_send_echo(struct socket *so, struct sockaddr *addr, struct thread *td)
+{
+    struct inpcb *inp;
+    struct mbuf *m;
+
+    printf("udp_send_echo called\n");
+    MGET(m, M_NOWAIT, MT_DATA);
+    //m_get2(4096, m, M_NOWAIT, MT_DATA);
+    if (m == NULL) {
+        printf("udp_send_echo failed to alloc mbuf\n");
+        return (0);
+    }
+
+    bzero(&m->m_pkthdr.tags, sizeof(struct pkthdr));
+    m->m_pkthdr.len = 0;
+    m->m_flags = M_PKTHDR;
+
+    inp = sotoinpcb(so);
+    KASSERT(inp != NULL, ("udp_send: inp == NULL"));
+    return (udp_output(inp, m, addr, NULL, td));
 }
 
 static int
