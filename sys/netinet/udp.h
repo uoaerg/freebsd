@@ -55,6 +55,7 @@ struct udphdr {
 #define UDP_OPT				8 	/* use udp options */
 #define UDP_OPT_MSS			9 	/* get opt rtt estimate */
 #define UDP_OPT_ECHO			10	/* respond to echo requests estimate */
+#define UDP_OPT_PROBE			11	/* perform plpmtud probing */
 
 /* Start of reserved space for third-party user-settable options. */
 #define	UDP_VENDOR			SO_VENDOR

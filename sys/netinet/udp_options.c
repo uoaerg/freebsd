@@ -354,3 +354,140 @@ udp_ts_getticks(void)
 	getmicrouptime(&tv);
 	return (tv.tv_sec * 1000 + tv.tv_usec / 1000);
 }
+
+void
+plpmtud_event(struct udpcb *up, int event)
+{
+	int oldstate = up->u_plpmtud.state;
+
+	printf("udp_probe: state %d event %d \n", oldstate, event);
+
+	switch (up->u_plpmtud.state)
+	{
+	case UDPOPT_PROBE_STATE_NONE:
+		if (event == UDPOPT_PROBE_EVENT_ACK) {
+			up->u_plpmtud.state = UDPOPT_PROBE_STATE_BASE;
+			printf("udp_probe: UDPOPT_PROBE_STATE_NONE -> UDPOPT_PROBE_STATE_BASE\n");
+		} else 
+			printf("udp_probe: event %d invalid in state UDPOPT_PROBE_NONE\n", event);
+		break;
+	case UDPOPT_PROBE_STATE_BASE:
+		switch (event) {
+		case UDPOPT_PROBE_EVENT_PTB:
+			up->u_plpmtud.state = UDPOPT_PROBE_STATE_ERROR;
+			printf("udp_probe: UDPOPT_PROBE_STATE_BASE -> UDPOPT_PROBE_STATE_ERROR\n");
+			break;
+		case UDPOPT_PROBE_EVENT_TIMEOUT:
+			if (up->u_plpmtud.probe_count <  MAX_PROBES) {
+				up->u_plpmtud.probe_count++;
+				up->u_plpmtud.probed_size = BASE_MTU;
+				up->u_plpmtud.send_probe = 1;
+			} else {
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_ERROR;
+				printf("udp_probe: UDPOPT_PROBE_STATE_BASE -> UDPOPT_PROBE_STATE_ERROR\n");
+			}
+			break;
+		case UDPOPT_PROBE_EVENT_ACK:
+			if (up->u_plpmtud.probed_size == up->u_plpmtud.max_pmtu) { 
+				up->u_plpmtud.effective_pmtu = up->u_plpmtud.probed_size;
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_DONE;
+				printf("udp_probe: UDPOPT_PROBE_STATE_BASE -> UDPOPT_PROBE_STATE_DONE\n");
+			} else {
+				up->u_plpmtud.effective_pmtu = up->u_plpmtud.probed_size;
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_SEARCH;
+				printf("udp_probe: UDPOPT_PROBE_STATE_BASE -> UDPOPT_PROBE_STATE_SEARCH\n");
+			}
+			break;
+		}
+		break;
+	case UDPOPT_PROBE_STATE_SEARCH:
+		switch (event)
+		{
+		case UDPOPT_PROBE_EVENT_TIMEOUT:
+			if (up->u_plpmtud.probe_count >= MAX_PROBES) {
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_DONE;
+				printf("udp_probe: UDPOPT_PROBE_STATE_SEARCH -> UDPOPT_PROBE_STATE_DONE\n");
+			} else {
+				up->u_plpmtud.probe_count++;
+				up->u_plpmtud.send_probe = 1;
+			}
+			break;
+		case UDPOPT_PROBE_EVENT_PTB:
+			up->u_plpmtud.state = UDPOPT_PROBE_STATE_BASE;
+			printf("udp_probe: UDPOPT_PROBE_STATE_SEARCH -> UDPOPT_PROBE_STATE_BASE\n");
+			break;
+		case UDPOPT_PROBE_EVENT_ACK:
+			if (up->u_plpmtud.probed_size == up->u_plpmtud.max_pmtu)	{
+				up->u_plpmtud.effective_pmtu = up->u_plpmtud.probed_size;
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_DONE;
+				printf("udp_probe: UDPOPT_PROBE_STATE_SEARCH -> UDPOPT_PROBE_STATE_DONE\n");
+			} else {
+				up->u_plpmtud.probe_count = 0;
+				up->u_plpmtud.effective_pmtu = up->u_plpmtud.probed_size;
+				up->u_plpmtud.probed_size = plpmtud_next_probe(&up->u_plpmtud);
+				up->u_plpmtud.send_probe = 1;
+			}
+			break;
+		}	
+		break;
+	case UDPOPT_PROBE_STATE_ERROR:
+		switch (event) {
+		case UDPOPT_PROBE_EVENT_ACK:
+			up->u_plpmtud.state = UDPOPT_PROBE_STATE_SEARCH;
+			printf("udp_probe: UDPOPT_PROBE_STATE_ERROR -> UDPOPT_PROBE_STATE_SEARCH\n");
+			break;
+		case UDPOPT_PROBE_EVENT_TIMEOUT:
+			up->u_plpmtud.probe_count++;
+			up->u_plpmtud.probed_size = BASE_MTU;
+			up->u_plpmtud.send_probe = 1;
+		default:
+			printf("udp_probe: event %d invalid in state UDPOPT_PROBE_ERROR\n", event);
+		}
+		break;
+	case UDPOPT_PROBE_STATE_DONE:
+		switch (event)
+		{
+		case UDPOPT_PROBE_EVENT_TIMEOUT:
+			if (up->u_plpmtud.probe_count >= MAX_PROBES) {
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_BASE;
+				printf("udp_probe: UDPOPT_PROBE_STATE_DONE -> UDPOPT_PROBE_STATE_BASE\n");
+			} else {
+				up->u_plpmtud.probe_count++;
+				up->u_plpmtud.probed_size = BASE_MTU;
+				up->u_plpmtud.send_probe = 1;
+			}
+			break;
+		case UDPOPT_PROBE_EVENT_RAISE:
+			up->u_plpmtud.state = UDPOPT_PROBE_STATE_BASE;
+			printf("udp_probe: UDPOPT_PROBE_STATE_DONE -> UDPOPT_PROBE_STATE_BASE\n");
+		}
+		break;
+	default:	
+		break;
+	}
+
+	if (oldstate != up->u_plpmtud.state) {
+		switch(up->u_plpmtud.state) {
+		case UDPOPT_PROBE_STATE_BASE:
+		case UDPOPT_PROBE_STATE_ERROR:
+			up->u_plpmtud.probed_size = BASE_MTU;
+			up->u_plpmtud.probe_count = 0;
+			up->u_plpmtud.send_probe = 1;
+
+			break;
+		case UDPOPT_PROBE_STATE_SEARCH:
+			up->u_plpmtud.probed_size = up->u_plpmtud.effective_pmtu;
+			up->u_plpmtud.probe_count = 0;
+			up->u_plpmtud.send_probe = 1;
+
+			break;
+		}
+	}
+}
+
+int
+plpmtud_next_probe(struct udpopt_probe *plpmtud)
+{
+	printf("plpmtud_next_probe\n");
+	return BASE_MTU;
+}

@@ -746,12 +746,22 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 			if (uo.uo_flags & UOF_ECHOREQ)
 				up->u_echo_recent = uo.uo_echoreq;
 
-			/*
-			 * if we are doing echos and have been asked to provide a response
-			 */
-			if ( (uo.uo_flags & UOF_ECHOREQ) && (up->u_sopt_td != NULL) &&
-				(up->u_flags & UF_OPTECHO)) {
-				udp_send_echo(inp->inp_socket, (struct sockaddr *)&udp_in[0], up->u_sopt_td);
+			if ((up->u_sopt_td != NULL) && (up->u_flags & UF_OPTECHO)) {
+				/* respond to the echo request */
+				/* TODO this MUST be rate limited */
+				if (uo.uo_flags & UOF_ECHOREQ)
+					udp_send_echo(inp->inp_socket, (struct sockaddr *)&udp_in[0], up->u_sopt_td);
+
+				/* if we have an echo response tell the state machine */
+				if (uo.uo_flags & UOF_ECHORES) {
+					plpmtud_event(up, UDPOPT_PROBE_EVENT_ACK);
+
+					if (up->u_plpmtud.send_probe) {
+						up->u_plpmtud.send_probe = 0;
+						udp_send_echo(inp->inp_socket, 
+							(struct sockaddr *)&udp_in[0], up->u_sopt_td);
+					}
+				}
 			}
 		}
 	}
@@ -802,6 +812,7 @@ udp_common_ctlinput(int cmd, struct sockaddr *sa, void *vip,
 	struct ip *ip = vip;
 	struct udphdr *uh;
 	struct in_addr faddr;
+	struct icmp *icp;
 	struct inpcb *inp;
 
 	faddr = ((struct sockaddr_in *)sa)->sin_addr;
@@ -842,6 +853,18 @@ udp_common_ctlinput(int cmd, struct sockaddr *sa, void *vip,
 				struct udpcb *up;
 
 				up = intoudpcb(inp);
+		
+				/* feed PTB into the dplpmtud state machine */
+				if(V_udp_doopts && (up->u_flags & UF_OPT)) {
+					icp = (struct icmp *)((caddr_t)ip -
+						offsetof(struct icmp, icmp_ip));
+
+					if (cmd == PRC_MSGSIZE) {
+						up->u_plpmtud.ptb_size = icp->icmp_nextmtu;
+						plpmtud_event(up, UDPOPT_PROBE_EVENT_PTB);
+					}
+				}
+
 				if (up->u_icmp_func != NULL) {
 					INP_RUNLOCK(inp);
 					(*up->u_icmp_func)(cmd, sa, vip, up->u_tun_ctx);
@@ -1126,6 +1149,24 @@ udp_ctloutput(struct socket *so, struct sockopt *sopt)
 			}
 			INP_WUNLOCK(inp);
 			break;
+		case UDP_OPT_PROBE:                                   
+			INP_WUNLOCK(inp);
+			error = sooptcopyin(sopt, &optval, sizeof optval, sizeof optval);
+			if (error != 0)
+				break;
+
+			opt = UF_OPTPROBE;
+
+			INP_WLOCK(inp);
+			up = intoudpcb(inp);
+			KASSERT(up != NULL, ("%s: up == NULL", __func__));
+			if (optval) {
+				up->u_flags |= opt;
+				up->u_plpmtud.state = UDPOPT_PROBE_STATE_NONE;
+			} else {
+				up->u_flags &= ~opt;
+			}
+			INP_WUNLOCK(inp);
 		default:
 			INP_WUNLOCK(inp);
 			error = ENOPROTOOPT;

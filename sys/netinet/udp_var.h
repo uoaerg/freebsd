@@ -57,6 +57,38 @@ struct udpiphdr {
 struct inpcb;
 struct mbuf;
 
+#define UDPOPT_PROBE_STATE_NONE   1
+#define UDPOPT_PROBE_STATE_BASE   2
+#define UDPOPT_PROBE_STATE_SEARCH 3
+#define UDPOPT_PROBE_STATE_ERROR  4
+#define UDPOPT_PROBE_STATE_DONE   5
+
+#define UDPOPT_PROBE_EVENT_ACK  1
+#define UDPOPT_PROBE_EVENT_TIMEOUT  2
+#define UDPOPT_PROBE_EVENT_PTB  5
+#define UDPOPT_PROBE_EVENT_RAISE 6
+
+#define MAX_PROBES 10
+#define MIN_MTU 1280
+#define BASE_MTU 1200
+
+struct udpopt_probe
+{
+	uint8_t state;
+	uint8_t send_probe;
+
+	uint16_t max_pmtu;      /* max mtu signalled for peer */
+
+	uint32_t probe_timer;
+	uint32_t pmtu_raise_timer;
+	uint32_t reachability_timer;
+
+	uint16_t effective_pmtu;    /* current successful probe size */
+	uint16_t probed_size;   /* current probe size */
+	uint16_t probe_count;   /* count of unsucessful probes */
+	uint16_t ptb_size;  /* icmp ptb size*/
+};
+
 typedef void(*udp_tun_func_t)(struct mbuf *, int, struct inpcb *,
 			      const struct sockaddr *, void *);
 typedef void(*udp_tun_icmp_t)(int, struct sockaddr *, void *, void *);
@@ -68,6 +100,7 @@ struct udpcb {
 	udp_tun_func_t	u_tun_func;	/* UDP kernel tunneling callback. */
 	udp_tun_icmp_t  u_icmp_func;	/* UDP kernel tunneling icmp callback */
 	struct thread *u_sopt_td;	/* calling thread for ECHO sopt */
+	struct udpopt_probe	u_plpmtud;	/* state machine for mtu probing*/
 	u_int		u_flags;	/* Generic UDP flags. */
 	uint16_t	u_rxcslen;	/* Coverage for incoming datagrams. */
 	uint16_t	u_txcslen;	/* Coverage for outgoing datagrams. */
@@ -87,6 +120,7 @@ struct udpcb {
 #define	UF_ESPINUDP		0x00000002	/* w/ non-ESP marker. */
 #define UF_OPT			0x00000004	/* use udp options */
 #define UF_OPTECHO		0x00000008	/* use udp options echo */
+#define UF_OPTPROBE		0x00000010	/* use udp options mtu probing */
 
 struct udpstat {
 				/* input statistics: */
@@ -189,6 +223,9 @@ int		udp_shutdown(struct socket *so);
 
 int		udp_set_kernel_tunneling(struct socket *so, udp_tun_func_t f,
 		    udp_tun_icmp_t i, void *ctx);
+int plpmtud_next_probe(struct udpopt_probe *);
+void plpmtud_event(struct udpcb *, int );
+
 
 #endif /* _KERNEL */
 
